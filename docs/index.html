@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linear Transformation Visualizer</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./main.js"></script>
+</head>
+<body>
+  <h1>Linear Transformation Visualizer</h1>
+  <main>
+    <aside aria-label="Transformation settings">
+      <form id="matrix-form">
+        <h2>Matrix A</h2>
+        <label for="matrix-input">One row per line; spaces between entries</label>
+        <textarea id="matrix-input" rows="4" spellcheck="false" aria-describedby="matrix-error">1 0
+0 1</textarea>
+        <button id="apply" type="submit" data-compute disabled>Apply</button>
+        <p id="matrix-error" class="error" role="alert"></p>
+      </form>
+      <p id="mapping">2 × 2 · T: R² → R²</p>
+      <fieldset>
+        <legend>View</legend>
+        <label><input id="source-grid" type="checkbox" checked> Source grid</label>
+        <label><input id="transformed-grid" type="checkbox" checked> Transformed grid</label>
+        <label><input id="basis" type="checkbox" checked> Basis vectors and images</label>
+        <div class="actions" role="group" aria-label="Interaction mode">
+          <button id="draw-mode" type="button" aria-pressed="true">Draw</button>
+          <button id="rotate-mode" type="button" aria-pressed="false">Rotate</button>
+        </div>
+        <div id="drawing-plane" hidden>
+          <label for="plane">Drawing plane</label>
+          <select id="plane"><option>XY</option><option>XZ</option><option>YZ</option></select>
+          <label for="fixed-coordinate" id="fixed-label">Fixed z</label>
+          <input id="fixed-coordinate" type="number" step="any" value="0">
+        </div>
+        <div class="actions">
+          <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+          <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+          <button id="reset-view" type="button">Reset view</button>
+        </div>
+        <p id="interaction-hint">Draw: click or drag a source endpoint. Scroll to zoom.</p>
+      </fieldset>
+      <form id="vector-form">
+        <h2>Source vector</h2>
+        <div id="coordinates" class="coordinates"></div>
+        <div class="actions">
+          <button id="save-vector" type="submit" data-compute disabled>Add vector</button>
+          <button id="new-vector" type="button">New</button>
+        </div>
+        <p id="vector-error" class="error" role="alert"></p>
+      </form>
+      <p id="status" role="status">Loading Python…</p>
+      <button id="retry" type="button" hidden>Retry Python</button>
+    </aside>
+    <div class="workspace">
+      <section class="plot" aria-label="Shared coordinate view">
+        <h2 id="space-label">Source space R² · Target space R²</h2>
+        <div class="legend">
+          <span><i class="source-grid"></i> Source grid</span>
+          <span><i class="image-grid"></i> Transformed grid</span>
+          <span><i class="source-vector"></i> v / eᵢ</span>
+          <span><i class="image-vector"></i> Av / Aeᵢ</span>
+        </div>
+        <svg id="space" viewBox="-420 -350 840 700" role="img" aria-label="Original and transformed grids and vectors, sharing the origin and unit scale"></svg>
+        <p id="view-context">Common origin · Equal unit scale · Fixed reference axes</p>
+      </section>
+      <section class="vector-panel" aria-labelledby="vectors-title">
+        <div class="row-heading"><h2 id="vectors-title">Vectors</h2><button id="clear-vectors" type="button" data-compute disabled>Clear all</button></div>
+        <div id="vector-list"><p>No user vectors. Draw in the view or enter source coordinates.</p></div>
+      </section>
+    </div>
+  </main>
+  <noscript>Enable JavaScript to use this page.</noscript>
+</body>
+</html>
