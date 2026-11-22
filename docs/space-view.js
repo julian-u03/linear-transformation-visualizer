@@ -8,77 +8,53 @@ export function format(value) {
     ? rounded.toExponential(3) : String(rounded);
 }
 
+export function transitionGeometry(from, to, progress) {
+  // Interpolate display positions, without changing either applied matrix.
+  const point = (a, b) => Array.from({ length: Math.max(a.length, b.length) }, (_, i) =>
+    progress === 0 ? (a[i] ?? 0) : progress === 1 ? (b[i] ?? 0) : (1 - progress) * (a[i] ?? 0) + progress * (b[i] ?? 0));
+  return {
+    id: "preview", name: "T", color: to.color, visible: true, n: from.n,
+    m: progress === 0 ? from.m : progress === 1 ? to.m : Math.max(from.m, to.m),
+    grid: from.grid.map((line, i) => line.map((p, j) => point(p, to.grid[i][j]))),
+    basis: from.basis.map((p, i) => point(p, to.basis[i])),
+    points: from.points.map((p, i) => point(p, to.points[i])),
+    images: Object.fromEntries(Object.entries(from.images).map(([id, p]) => [id,
+      progress === 0 ? p : progress === 1 ? to.images[id] : point(p, to.images[id])])),
+  };
+}
+
 export class SpaceView {
-  constructor(svg, callbacks) {
+  constructor(svg) {
     this.svg = svg;
-    this.callbacks = callbacks;
-    this.dimension = 2;
     this.zoom = 1;
-    this.angle = 0;
     this.yaw = 0.65;
     this.pitch = 0.5;
-    this.radius = 5;
-    this.axisExtent = 3;
+    this.dimension = 3;
+    this.axisExtent = 10;
     this.tickStep = 1;
+    this.radius = Math.SQRT2 * this.axisExtent;
     let drag = null;
     svg.addEventListener("pointerdown", event => {
-      if (event.button !== 0 || !this.scene) return;
-      const point = this.pointer(event);
-      if (this.options.mode === "rotate") {
-        drag = { mode: "rotate", x: point[0], y: point[1] };
-      } else {
-        const hit = [...this.scene.vectors].reverse().find(vector => {
-          const endpoint = this.project(vector.coords);
-          return Math.hypot(point[0] - endpoint[0], point[1] - endpoint[1]) < 14;
-        });
-        const image = event.target.closest("[data-image]");
-        if (image && !hit) { this.callbacks.select(image.dataset.image); return; }
-        const coords = this.unproject(point);
-        if (!coords) return;
-        const id = this.callbacks.draw(coords, hit?.id);
-        if (!id) return;
-        drag = { mode: "draw", id };
-      }
+      if (event.button !== 0) return;
+      drag = { x: event.clientX, y: event.clientY };
       svg.setPointerCapture(event.pointerId);
-      event.preventDefault();
     });
     svg.addEventListener("pointermove", event => {
       if (!drag) return;
-      const point = this.pointer(event);
-      if (drag.mode === "rotate") {
-        if (this.dimension === 2) this.angle += (point[0] - drag.x - point[1] + drag.y) * 0.008;
-        if (this.dimension === 3) {
-          this.yaw += (point[0] - drag.x) * 0.008;
-          this.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.pitch + (point[1] - drag.y) * 0.008));
-        }
-        drag.x = point[0];
-        drag.y = point[1];
-        this.draw();
-      } else {
-        const coords = this.unproject(point);
-        if (coords) this.callbacks.draw(coords, drag.id);
-      }
+      const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+      this.yaw += dx * 0.008;
+      this.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.pitch + dy * 0.008));
+      drag = { x: event.clientX, y: event.clientY };
+      this.draw();
     });
     const stop = () => { drag = null; };
-    for (const name of ["pointerup", "pointercancel", "lostpointercapture"]) svg.addEventListener(name, stop);
+    svg.addEventListener("pointerup", stop);
+    svg.addEventListener("pointercancel", stop);
+    svg.addEventListener("lostpointercapture", stop);
     svg.addEventListener("wheel", event => {
       event.preventDefault();
       this.changeZoom(Math.exp(-event.deltaY * 0.001));
     }, { passive: false });
-  }
-
-  update(scene, options, refit = false) {
-    const previousDimension = this.dimension;
-    this.scene = scene;
-    this.options = options;
-    this.dimension = Math.max(scene.n, scene.m);
-    this.svg.dataset.mode = options.mode;
-    if (previousDimension !== this.dimension) {
-      this.angle = 0;
-      this.yaw = 0.65;
-      this.pitch = 0.5;
-    }
-    if (refit) { this.zoom = 1; this.fit(); }
     this.draw();
   }
 
@@ -88,7 +64,6 @@ export class SpaceView {
   }
 
   reset() {
-    this.angle = 0;
     this.yaw = 0.65;
     this.pitch = 0.5;
     this.zoom = 1;
@@ -96,64 +71,47 @@ export class SpaceView {
     this.draw();
   }
 
+  setPreset(plane) {
+    this.yaw = plane === "yz" ? Math.PI / 2 : 0;
+    this.pitch = plane === "xz" ? -Math.PI / 2 : 0;
+    this.draw();
+  }
+
+  update(scene, options) {
+    this.scene = scene;
+    this.options = options;
+    const matrices = scene.matrices.filter(matrix => matrix.visible);
+    this.sourceDimension = options.preview?.n ?? Math.max(options.sourceDimension, ...matrices.map(matrix => matrix.n),
+      ...scene.vectors.filter(vector => vector.visible).map(vector => vector.coords.length));
+    // Scene changes preserve the camera and scale; only Reset view refits.
+    this.draw();
+    return this.dimension;
+  }
+
   fit() {
     if (!this.scene) return;
-    const scene = this.scene;
-    const points = [...scene.sourceGrid.flat(), ...scene.targetGrid.flat(), ...scene.basis, ...scene.basisImages,
-      ...scene.vectors.map(vector => vector.coords), ...Object.values(scene.images)];
-    const maxCoordinate = Math.max(3, ...points.flat().map(Math.abs));
-    const power = 10 ** Math.floor(Math.log10(maxCoordinate / 3));
-    this.tickStep = [1, 2, 5, 10].map(x => x * power).find(x => maxCoordinate / x <= 5);
-    this.axisExtent = Math.ceil(maxCoordinate / this.tickStep) * this.tickStep;
-    // A sphere around the common origin fits both positive and negative halves at every angle.
-    this.radius = Math.max(this.axisExtent, ...points.map(point => Math.hypot(...point)));
+    const points = this.options.points ? [...this.scene.sources[this.sourceDimension].points] : [];
+    for (const matrix of this.options.endpoints ?? this.scene.matrices.filter(matrix => matrix.visible)) {
+      if (this.options.transformedGrid) points.push(...matrix.grid.flat());
+      if (this.options.points) points.push(...matrix.points);
+      if (this.options.basis) points.push(...matrix.basis);
+      for (const vector of this.scene.vectors.filter(vector => vector.visible && (!this.options.preview || vector.coords.length === this.sourceDimension))) {
+        if (matrix.images[vector.id]) points.push(matrix.images[vector.id]);
+      }
+    }
+    points.push(...this.scene.vectors.filter(vector => vector.visible && (!this.options.preview || vector.coords.length === this.sourceDimension)).map(vector => vector.coords));
+    this.tickStep = 1;
+    this.axisExtent = 10;
+    this.radius = Math.max(Math.SQRT2 * this.axisExtent, ...points.map(point => Math.hypot(...point)));
   }
 
   project(point) {
     const [x = 0, y = 0, z = 0] = point;
-    const scale = 285 / this.radius * this.zoom;
-    if (this.dimension < 3) {
-      return [(Math.cos(this.angle) * x - Math.sin(this.angle) * y) * scale,
-        -(Math.sin(this.angle) * x + Math.cos(this.angle) * y) * scale];
-    }
     const horizontal = Math.cos(this.yaw) * x + Math.sin(this.yaw) * z;
     const depth = -Math.sin(this.yaw) * x + Math.cos(this.yaw) * z;
-    return [horizontal * scale, -(Math.cos(this.pitch) * y - Math.sin(this.pitch) * depth) * scale];
-  }
-
-  pointer(event) {
-    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(this.svg.getScreenCTM().inverse());
-    return [point.x, point.y];
-  }
-
-  unproject(point) {
-    const { n } = this.scene;
-    if (n === 1) {
-      const unit = this.project([1]);
-      return [(point[0] * unit[0] + point[1] * unit[1]) / (unit[0] ** 2 + unit[1] ** 2)];
-    }
-    const free = n === 2 ? [0, 1] : { XY: [0, 1], XZ: [0, 2], YZ: [1, 2] }[this.options.plane];
-    const fixedAxis = [0, 1, 2].find(axis => !free.includes(axis));
-    const coords = Array(n).fill(0);
-    const fixed = n === 2 ? 0 : this.options.fixed;
-    if (!Number.isFinite(fixed)) { this.callbacks.error("Enter a finite fixed coordinate."); return null; }
-    if (n === 3) coords[fixedAxis] = fixed;
-    const offset = this.project(coords);
-    const units = free.map(axis => {
-      const unit = [0, 0, 0];
-      unit[axis] = 1;
-      return this.project(unit);
-    });
-    const [[a, c], [b, d]] = units;
-    const determinant = a * d - b * c;
-    if (Math.abs(determinant) <= 0.025 * Math.hypot(a, c) * Math.hypot(b, d)) {
-      this.callbacks.error("The drawing plane is edge-on. Rotate the view or choose another plane.");
-      return null;
-    }
-    const x = point[0] - offset[0], y = point[1] - offset[1];
-    coords[free[0]] = (d * x - b * y) / determinant;
-    coords[free[1]] = (a * y - c * x) / determinant;
-    return coords;
+    const vertical = Math.cos(this.pitch) * y - Math.sin(this.pitch) * depth;
+    const scale = 300 / this.radius * this.zoom;
+    return [horizontal * scale, -vertical * scale];
   }
 
   element(tag, attributes = {}, parent = this.svg) {
@@ -181,46 +139,71 @@ export class SpaceView {
     this.line([], point, attributes, parent);
     const [x, y] = this.project(point);
     const length = Math.hypot(x, y);
-    if (length < 0.01) {
-      this.element("circle", { cx: x, cy: y, r: selected ? 6 : 4, fill: "white", stroke: color, "stroke-width": 2 }, parent);
+    if (point.every(value => value === 0) || length < 0.01) {
+      this.element("circle", { cx: x, cy: y, r: selected ? 5 : 3, fill: "white", stroke: color, "stroke-width": 2 }, parent);
     } else {
       const ux = x / length, uy = y / length;
       this.element("polygon", { points: `${x},${y} ${x - 9 * ux + 4 * uy},${y - 9 * uy - 4 * ux} ${x - 9 * ux - 4 * uy},${y - 9 * uy + 4 * ux}`, fill: color }, parent);
-      if (selected) this.element("circle", { cx: x, cy: y, r: 7, fill: "none", stroke: color }, parent);
     }
     this.text(point, label, { fill: color, dy: offset, "font-weight": selected ? "bold" : "normal" }, parent);
   }
 
   draw() {
     this.svg.replaceChildren();
-    if (!this.scene) return;
+    if (!this.scene) {
+      this.axes();
+      return;
+    }
     const { scene, options } = this;
-    if (options.transformedGrid) {
-      const group = this.element("g", { stroke: "#2166ac", "stroke-width": 1.1, "data-grid": "target" });
-      for (const [start, end] of scene.targetGrid) this.line(start, end, {}, group);
-      if (scene.targetGrid.every(line => line.every(point => point.every(value => value === 0)))) {
-        this.element("circle", { cx: 0, cy: 0, r: 5, fill: "#2166ac" }, group);
-        this.text([], "A grid = 0", { fill: "#2166ac", dy: 28 }, group);
+    const source = scene.sources[this.sourceDimension];
+    const visible = options.preview ? [options.preview] : scene.matrices.filter(matrix => matrix.visible);
+    // Selected geometry is painted last, without changing any mathematical data.
+    visible.sort((a, b) => Number(a.id === options.selectedMatrix) - Number(b.id === options.selectedMatrix));
+    if (options.points) {
+      const original = this.element("g", { fill: "#888", opacity: 0.55, "data-points": "source" });
+      this.dots(source.points, original);
+      for (const matrix of visible) {
+        const group = this.element("g", { fill: matrix.color, opacity: matrix.id === options.selectedMatrix ? 0.9 : 0.3, "data-points": matrix.id });
+        this.dots(matrix.points, group);
       }
     }
-    if (options.sourceGrid) {
-      const group = this.element("g", { stroke: "#aaa", "stroke-width": 1, "stroke-dasharray": "4 5", "data-grid": "source" });
-      for (const [start, end] of scene.sourceGrid) this.line(start, end, {}, group);
+    if (options.transformedGrid) {
+      for (const matrix of visible) {
+        const grid = this.element("g", { stroke: matrix.color, "stroke-width": 1, opacity: matrix.id === options.selectedMatrix ? 1 : 0.22, "data-grid": matrix.id });
+        for (const [start, end] of matrix.grid) this.line(start, end, {}, grid);
+        if (matrix.grid.every(line => line.every(point => point.every(value => value === 0)))) {
+          this.element("circle", { cx: 0, cy: 0, r: 4, fill: matrix.color }, grid);
+          this.text([], `${matrix.name} grid = 0`, { fill: matrix.color, dy: 18 }, grid);
+        }
+      }
     }
     this.axes();
     if (options.basis) {
-      const original = this.element("g", { "data-basis": "source" });
-      scene.basis.forEach((point, i) => this.arrow(point, `e${i + 1}`, "#626262", true, false, original, 14 + i * 8));
-      const target = this.element("g", { "data-basis": "target" });
-      scene.basisImages.forEach((point, i) => this.arrow(point, `Ae${i + 1}`, "#2166ac", false, false, target, -12 * i));
+      const original = this.element("g", { opacity: options.selectedMatrix ? 0.65 : 1 });
+      source.basis.forEach((point, i) => this.arrow(point, `e${i + 1}`, "#626262", true, false, original, 12));
+      for (const matrix of visible) {
+        const group = this.element("g", { opacity: matrix.id === options.selectedMatrix ? 1 : 0.3 });
+        matrix.basis.forEach((point, i) => this.arrow(point, `${matrix.name}e${i + 1}`, matrix.color, false, false, group, -12 * i));
+      }
     }
-    const vectors = [...scene.vectors].sort((a, b) => Number(a.id === options.selectedVector) - Number(b.id === options.selectedVector));
+    const vectors = scene.vectors.filter(vector => vector.visible && (!options.preview || vector.coords.length === this.sourceDimension));
+    vectors.sort((a, b) => Number(a.id === options.selectedVector) - Number(b.id === options.selectedVector));
     for (const vector of vectors) {
       const selected = vector.id === options.selectedVector;
-      const source = this.element("g", { "data-vector": vector.id });
-      this.arrow(vector.coords, vector.id, vector.color, true, selected, source, -9);
-      const target = this.element("g", { "data-image": vector.id });
-      this.arrow(scene.images[vector.id], `A${vector.id}`, vector.color, false, selected, target, 18);
+      const sourceGroup = this.element("g", { opacity: options.selectedMatrix ? 0.45 : 1, "data-vector": vector.id });
+      this.arrow(vector.coords, vector.name, vector.color, true, selected, sourceGroup);
+      for (const matrix of visible) {
+        if (!matrix.images[vector.id]) continue;
+        const targetGroup = this.element("g", { opacity: matrix.id === options.selectedMatrix ? 1 : 0.3, "data-image": `${matrix.id}-${vector.id}` });
+        this.arrow(matrix.images[vector.id], `${matrix.name}${vector.name}`, vector.color, false, selected, targetGroup, 15);
+      }
+    }
+  }
+
+  dots(points, parent) {
+    for (const point of points) {
+      const [cx, cy] = this.project(point);
+      this.element("circle", { cx, cy, r: 2.5 }, parent);
     }
   }
 
@@ -229,15 +212,17 @@ export class SpaceView {
       const start = [0, 0, 0], end = [0, 0, 0];
       start[axis] = -this.axisExtent;
       end[axis] = this.axisExtent;
-      const [px, py] = this.project(end), length = Math.hypot(px, py);
-      if (length < 0.01) { this.text([], `${AXES[axis]} (view direction)`, { dy: 40 }); continue; }
-      this.line(start, end, { stroke: "#242424", "stroke-width": 1.3, "data-axis": AXES[axis] });
+      // The axis perpendicular to a preset's viewing plane has no screen length.
+      if (Math.hypot(...this.project(end)) < 0.01) continue;
+      this.line(start, end, { stroke: "#242424", "stroke-width": 1.5 });
       for (const point of [start, end]) {
-        const [x, y] = this.project(point), size = Math.hypot(x, y);
-        const ux = x / size, uy = y / size;
-        this.element("path", { d: `M ${x - 8 * ux + 4 * uy} ${y - 8 * uy - 4 * ux} L ${x} ${y} L ${x - 8 * ux - 4 * uy} ${y - 8 * uy + 4 * ux}`, fill: "none", stroke: "#242424", "stroke-width": 1.3 });
+        const [x, y] = this.project(point), length = Math.hypot(x, y);
+        if (length < 0.01) continue;
+        const ux = x / length, uy = y / length;
+        this.element("path", { d: `M ${x - 8 * ux + 4 * uy} ${y - 8 * uy - 4 * ux} L ${x} ${y} L ${x - 8 * ux - 4 * uy} ${y - 8 * uy + 4 * ux}`, fill: "none", stroke: "#242424", "stroke-width": 1.5 });
       }
-      const nx = -py / length, ny = px / length;
+      const [px, py] = this.project(end), length = Math.hypot(px, py);
+      const nx = length ? -py / length : 0, ny = length ? px / length : 1;
       const count = Math.round(this.axisExtent / this.tickStep);
       for (let i = -count; i <= count; i++) {
         if (!i) continue;
@@ -247,7 +232,7 @@ export class SpaceView {
         this.element("line", { x1: x - 3 * nx, y1: y - 3 * ny, x2: x + 3 * nx, y2: y + 3 * ny, stroke: "#242424" });
         this.text(point, `${i > 0 ? "+" : ""}${format(point[axis])}`, { x: x + 9 * nx, y: y + 9 * ny + 4, "text-anchor": nx < -0.1 ? "end" : "start", fill: "#333" });
       }
-      this.text(end, AXES[axis], { class: "axis-label", dx: 8, dy: -8 });
+      this.text(end, AXES[axis], { class: "axis-label", dx: 7, dy: -7 });
     }
     this.text([], "0", { dx: -20, dy: 22 });
   }

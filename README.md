@@ -10,75 +10,84 @@ Python · JavaScript · NumPy · SVG · Pyodide
 
 </div>
 
-![Desktop view: a 3 by 2 matrix maps the dashed source grid in the xy-plane onto the blue plane z = x + y; source and image vectors share the origin](screenshots/desktop.jpg)
+![Desktop layout with matrices on the left, a shared coordinate view and animation in the middle, and vector controls and readouts on the right](screenshots/desktop.jpg)
 
 ## English
 
-Explore a linear map **T: Rⁿ → Rᵐ**, defined by **T(v) = A @ v**.
-Enter a matrix with one to three rows and columns, then compare the source grid,
-standard basis vectors and your own vectors with their images in one shared view.
-The app starts with the **2D identity matrix and no user vectors**.
+Explore linear maps **T(v) = A @ v** with matrices having one to three rows and
+columns. Compare multiple matrices in one shared coordinate view, inspect their
+images of the same source vectors, and animate between selected results.
+The app starts with the identity reference, a two-dimensional source and no user
+vectors. The original desktop layout keeps **matrices on the left, the view and
+animation in the middle, and vectors on the right**.
 
-### What the screenshot shows
+### Reading the screenshot
 
-The matrix below maps a two-dimensional source onto the plane **z = x + y**:
+The two matrices illustrate a shear and a reflection:
 
 ```text
-1 0
-0 1
-1 1
+A1          A2
+1 1         -1 0
+0 1          0 1
 ```
 
-The source vector `(1, 1)` appears in the xy-plane at display position `(1, 1, 0)`;
-its image is `(1, 1, 2)`. Coordinate readouts use column vectors and keep their
-actual dimensions. Gray dashed lines show the source grid; blue solid lines
-show its image. Both share the origin, reference axes, unit scale and camera.
-Dashed and solid arrows distinguish each vector from its image, with matching
-colors and explicit labels. The image of `eᵢ` is column `i` of the matrix.
+For the source vector `(4, 3)`, the right panel shows **A1v1 = (7, 3)** and
+**A2v1 = (−4, 3)** as column vectors. All visible results share the same origin,
+axes, unit scale and camera. Source arrows are dashed; their images are solid.
+The selected matrix is emphasized while other visible matrices remain in the
+background. With Points enabled, gray points show the source and colored points
+show its images. The image of each standard basis vector is a matrix column.
 
 ### Using the app
 
-- **Apply a matrix:** separate rows with newlines and entries with spaces or tabs.
-  Decimal points and scientific notation are accepted. All nine shapes from
-  1×1 through 3×3 work, including rectangular, zero and singular matrices.
-- **Draw vectors:** use Draw mode to click or drag source endpoints. Enter precise
-  source coordinates numerically, select pairs in the list, update or remove
-  them, or clear all vectors. Image coordinates are calculated automatically.
-- **Draw in 3D:** choose XY, XZ or YZ and the fixed remaining coordinate. With a
-  two-dimensional source in a 3D view, drawing always intersects its xy-plane.
-  Rotate an edge-on drawing plane before using it.
-- **Inspect the view:** choose Rotate and drag with the left mouse button. This
-  orbits a 3D camera or rotates a 2D view around the common origin. Scroll or use
-  the zoom buttons; Reset view restores the camera and fits the complete scene.
-  Source grid, transformed grid and basis arrows have visibility controls.
-- **Edit safely:** drafts change the scene only after a successful Apply. Invalid
-  input preserves the last applied result. Source vectors survive changes to the
-  target dimension; changing the source dimension clears incompatible vectors.
+- **Matrices:** choose New matrix, enter rows separated by newlines and entries
+  separated by spaces or tabs, then Apply as new matrix. Select an existing
+  matrix to apply changes or remove it. Each matrix has its own visibility
+  checkbox. Up to eight matrices are supported.
+- **Vectors:** enter source coordinates in the right panel. Vectors are shared
+  by all matrices with the same number of columns. Select a vector to update
+  it, hide or remove it, use the previous/next buttons to browse, or clear all
+  vectors. Dimension groups are retained when switching between source spaces.
+- **View:** drag to rotate around the common origin, scroll or use the zoom
+  buttons, select XY/XZ/YZ presets, or choose Reset view. Transformed grids,
+  points and basis arrows have separate controls. Reset view fits the visible
+  geometry; ordinary edits preserve the camera and scale.
+- **Animation:** choose From and To, set the duration, and use Play/Pause or
+  the progress slider. Matrices must have the same source dimension. The
+  identity reference adapts to that source dimension. When target dimensions
+  differ, the interface explicitly identifies the animation as a display
+  transition. Applied matrices and computed vector images remain unchanged.
 
-This is an active transformation in fixed reference coordinates. Lower-dimensional
-spaces are embedded along the x-axis or in the xy-plane for display only. The
-matrix and numerical coordinates are never padded, clipped or normalized.
+All nine matrix shapes from 1×1 through 3×3 are accepted, including rectangular,
+zero and singular matrices. Decimal points and scientific notation are allowed;
+ragged rows, internal empty rows, nonnumbers, NaN and infinity are rejected.
+Invalid drafts preserve the last applied scene.
+
+Lower-dimensional vectors are embedded on the x-axis or in the xy-plane for the
+shared orthographic display. Their numerical readouts keep the actual source
+and target dimensions. Animation interpolates display geometry; it does not
+change the applied matrix data.
 
 ### How it works
 
 | Layer | Responsibility |
 | --- | --- |
-| HTML / CSS | Plain desktop layout and accessible controls |
-| JavaScript | Input events, recoverable applied state and worker coordination |
-| SVG / camera | Shared 1D, 2D or orthographic 3D presentation and plane picking |
-| Python / NumPy | Matrix parsing, Float64 products, source grid and image geometry |
-| Pyodide Web Worker | Reuses Python without blocking the interface; rejects stale replies |
+| HTML / CSS | Original three-column desktop layout |
+| JavaScript | Matrix/vector controls, selection, animation and worker coordination |
+| SVG / camera | Shared orthographic projection, presets, rotation and zoom |
+| Python / NumPy | Validation, Float64 products, grids, points and basis images |
+| Pyodide Web Worker | Reusable browser-local Python runtime and request identifiers |
 
-The complete static app lives in `docs/`, with no backend, package manager or build
-step. On first use, **Pyodide 314.0.8**, NumPy and Pillow load from jsDelivr. Pillow
-is part of the reference runtime stack and has no image-processing role here.
-**Matrices and vectors stay in browser memory**; there is no analytics or persistence.
-The interface is English, with a fixed desktop layout that scrolls on smaller screens.
+The complete static app is in `docs/`, without a backend, package manager or build
+step. On first use, **Pyodide 314.0.8**, NumPy and Pillow load from jsDelivr.
+Pillow belongs to the reference runtime stack and has no image-processing role
+here. **Matrices and vectors stay in browser memory**; there is no analytics or
+persistence. The interface is English and uses a desktop layout.
 
-Practical limits are centralized in `main.js`: matrix coefficients and source
-coordinates have magnitude at most 10,000, up to 24 user vectors are allowed, and
-the source grid spans −3 through +3. Labels are rounded; geometry uses full results.
-Matrix changes and Reset view fit both spaces together; dragging never refits them.
+Limits are centralized in `main.js`: up to eight matrices and 24 vectors,
+coefficient and source-coordinate magnitudes at most 10,000, grids from −10 to
++10, and five point samples per source axis. Labels are rounded; the numerical
+results retain Float64 precision.
 
 For a local preview:
 
@@ -86,59 +95,65 @@ For a local preview:
 python -m http.server 8080 --bind 127.0.0.1 --directory docs
 ```
 
-Open [localhost:8080](http://127.0.0.1:8080). The server only delivers files;
-all mathematical calculations execute in the browser. An internet connection is
-needed to load the runtime and packages.
+Open [localhost:8080](http://127.0.0.1:8080). This server only delivers static
+files; Python calculations execute in the browser. Loading the runtime and
+packages requires an internet connection.
 
 ## Deutsch
 
-Untersuche eine lineare Abbildung **T: Rⁿ → Rᵐ** mit **T(v) = A @ v**.
-Gib eine Matrix mit jeweils ein bis drei Zeilen und Spalten ein. Quellgitter,
-Standardbasis und eigene Vektoren werden zusammen mit ihren Bildern in einer
-gemeinsamen Koordinatenansicht dargestellt. Der Startzustand ist die
-**2D-Einheitsmatrix ohne eigene Vektoren**.
+Untersuche lineare Abbildungen **T(v) = A @ v** mit Matrizen, deren Zeilen- und
+Spaltenzahl jeweils zwischen eins und drei liegt. Mehrere Matrizen lassen sich
+in derselben Ansicht vergleichen. Die ursprüngliche Anordnung bleibt erhalten:
+**Matrizen links, Koordinatenansicht und Animation in der Mitte, Vektoren rechts**.
+Der Startzustand zeigt die Identitätsreferenz mit zweidimensionaler Quelle und
+ohne eigene Vektoren.
 
-Der Screenshot zeigt die oben angegebene 3×2-Matrix: Sie bildet die xy-Ebene auf
-**z = x + y** ab. Aus `(1, 1)` wird `(1, 1, 2)`. Nur für die Darstellung erhält
-der Quellvektor eine zusätzliche Nullkoordinate; seine Anzeige als Spaltenvektor
-behält zwei Einträge. Grau gestrichelte Linien zeigen das Originalgitter, blaue
-Linien das transformierte Gitter. Ursprung, Achsen, Maßstab und Kamera sind gemeinsam.
+Im Screenshot bilden eine Scherung und eine Spiegelung den Quellvektor `(4, 3)`
+auf `(7, 3)` beziehungsweise `(−4, 3)` ab. Die Spaltenvektoren stehen rechts.
+Gestrichelte Pfeile zeigen die Quelle, durchgezogene Pfeile die Bilder.
+Aktiviere **Points**, um graue Quellpunkte und deren farbige Bilder einzublenden.
+Alle sichtbaren Objekte verwenden denselben Ursprung, Maßstab und dieselbe Kamera.
 
-Mit **Apply** wird ein gültiger Matrixentwurf übernommen. Ungültige Eingaben lassen
-die letzte gültige Szene stehen. Rechteckige Matrizen, Nullmatrizen und singuläre
-Matrizen sind erlaubt. Ändert sich nur die Zieldimension, bleiben Quellvektoren
-erhalten; bei einer neuen Quelldimension werden sie mit sichtbarem Hinweis entfernt.
+Links lassen sich bis zu acht Matrizen hinzufügen, auswählen, bearbeiten,
+ausblenden und entfernen. Rechts werden Vektoren numerisch eingegeben und mit
+allen Matrizen passender Spaltenzahl geteilt. Die Liste erlaubt Auswahl,
+Bearbeitung, Sichtbarkeit und Löschen; über die Pfeile wechselst du zwischen
+mehreren Vektoren. Vektoren bleiben in ihren jeweiligen Dimensionsgruppen erhalten.
 
-Mit **Draw** lassen sich Vektoren zeichnen und ihre Endpunkte verschieben. Für
-genaue Werte gibt es numerische Quellkoordinaten. Die Liste verbindet jeden
-Vektor mit seinem berechneten Bild und ermöglicht Auswahl, Bearbeitung und Löschen.
-Bei dreidimensionalen Quellen legen XY, XZ oder YZ und eine feste dritte Koordinate
-die Zeichenebene fest. **Rotate** dreht die gemeinsame Ansicht per linker Maustaste;
-Zoom und **Reset view** verändern ausschließlich die Darstellung.
+Die Ansicht lässt sich per Maus drehen und zoomen. **XY view**, **XZ view** und
+**YZ view** richten die Kamera aus; **Reset view** setzt sie zurück und passt die
+sichtbare Geometrie gemeinsam ein. Gitter, Punkte und Basispfeile haben eigene
+Schalter.
 
-Architektur und schlichtes Desktop-Design orientieren sich am
-[SVD Image Compression-Projekt](https://github.com/julian-u03/svd-image-compression).
-JavaScript steuert Oberfläche und SVG-Kamera, Python validiert Eingaben und
-berechnet mit NumPy. Pyodide läuft in einem wiederverwendeten Web Worker.
-Matrizen und Vektoren verlassen den Browser nicht. Für die lokale Vorschau genügt
-der oben gezeigte HTTP-Server; ein Build-Schritt ist nicht erforderlich.
+Unter der Ansicht stehen **From**, **To**, Dauer, Wiedergabe und Zeitschieber für
+die Animation. Bei gleicher Quelldimension können unterschiedliche Ergebnisse
+verglichen werden. Unterschiedliche Zieldimensionen werden ausdrücklich als
+Darstellungsübergang gekennzeichnet. Die Animation verändert weder angewendete
+Matrizen noch deren berechnete Vektorbilder.
+
+Rechteckige Matrizen, Nullmatrizen und singuläre Matrizen sind gültig. Ungültige
+Matrixentwürfe ersetzen die letzte gültige Szene nicht. Python validiert die
+Eingaben und berechnet mit NumPy, JavaScript steuert Oberfläche, SVG-Kamera und
+Animation. Pyodide läuft in einem wiederverwendeten Web Worker. Matrizen und
+Vektoren verlassen den Browser nicht. Für die lokale Vorschau genügt der oben
+gezeigte HTTP-Server; ein Build-Schritt ist nicht erforderlich.
 
 ## Project structure / Projektstruktur
 
 ```text
 docs/
   index.html                 Page and controls
-  style.css                  Desktop layout
-  main.js                    UI, limits, state and request revisions
-  space-view.js              SVG, shared camera and drawing-plane intersection
+  style.css                  Original three-column desktop layout
+  main.js                    Matrices, vectors, animation and worker requests
+  space-view.js              SVG projection, camera and display interpolation
   transformation-worker.js   Pyodide initialization and transport
-  python/linear_map.py       Validation, grids and linear maps
+  python/linear_map.py       Validation and numerical scene generation
 screenshots/desktop.jpg      Current README capture; not used by the app
 ```
 
 ## Sources and notices / Quellen und Hinweise
 
-Architecture and visual reference:
+Related project with the same browser-local Python architecture:
 [SVD Image Compression](https://github.com/julian-u03/svd-image-compression).
 
 Runtime/package licenses:
@@ -146,6 +161,6 @@ Runtime/package licenses:
 [NumPy](https://numpy.org/doc/stable/license.html) ·
 [Pillow](https://pillow.readthedocs.io/en/stable/about.html#license).
 
-The screenshot shows the running application, using only its own SVG geometry.
+The screenshot shows the running application and its own SVG geometry.
 No project source-code license has been selected.
 Eine Lizenz für den eigenen Projektquellcode wurde noch nicht gewählt.

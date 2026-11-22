@@ -35,36 +35,41 @@ def parse_matrix(text, limit):
 
 
 def source_grid(n, radius):
+    # Coordinate-plane grids keep the 3D scene sparse instead of filling a cube.
+    lines = []
     if n == 1:
         return np.array([[[-radius], [radius]]], dtype=np.float64)
-    lines = []
-    # A sparse grid on each coordinate plane makes 3D collapse visible.
-    for first in range(n):
-        for second in range(first + 1, n):
-            for moving, fixed in [(first, second), (second, first)]:
-                for tick in range(-radius, radius + 1):
-                    start = [0] * n
-                    start[moving], start[fixed] = -radius, tick
-                    end = start.copy()
-                    end[moving] = radius
-                    lines.append([start, end])
-    return np.asarray(lines, dtype=np.float64)
+    for axis in range(n):
+        for fixed in range(n):
+            if fixed == axis:
+                continue
+            for tick in range(-radius, radius + 1):
+                start = [0] * n
+                start[axis] = -radius
+                start[fixed] = tick
+                end = start.copy()
+                end[axis] = radius
+                lines.append([start, end])
+    return np.array(lines, dtype=np.float64)
+
+
+def source_points(n, radius, samples):
+    axis = np.linspace(-radius, radius, samples, dtype=np.float64)
+    return np.array(np.meshgrid(*([axis] * n), indexing="ij")).reshape(n, -1).T
 
 
 def calculate(payload):
     request = json.loads(payload)
     limits = request["limits"]
-    matrix = parse_matrix(request["text"], limits["coefficientMagnitude"])
-    m, n = matrix.shape
-    cleared = request["sourceDimension"] != n and bool(request["vectors"])
-    vectors = [] if request["sourceDimension"] != n else request["vectors"]
+    matrices, vectors = request["state"]["matrices"], request["state"]["vectors"]
+    if len(matrices) > limits["matrixCount"]:
+        raise ValueError(f"Use at most {limits['matrixCount']} matrices.")
     if len(vectors) > limits["vectorCount"]:
         raise ValueError(f"Use at most {limits['vectorCount']} vectors.")
-    images = {}
     for vector in vectors:
         coords = vector["coords"]
-        if len(coords) != n:
-            raise ValueError(f"Source vectors must contain exactly {n} coordinates.")
+        if not 1 <= len(coords) <= 3:
+            raise ValueError("A source vector must contain 1–3 coordinates.")
         if any(isinstance(x, bool) or not isinstance(x, (int, float)) for x in coords):
             raise ValueError("Source coordinates must be numbers.")
         values = np.asarray(coords, dtype=np.float64)
@@ -72,20 +77,33 @@ def calculate(payload):
             raise ValueError("Source coordinates must be finite.")
         if np.any(np.abs(values) > limits["coordinateMagnitude"]):
             raise ValueError(f"Source coordinates must have magnitude at most {limits['coordinateMagnitude']:g}.")
-        image = matrix @ values
-        if not np.isfinite(image).all():
-            raise ValueError("The transformed vector contains a nonfinite coordinate.")
-        images[vector["id"]] = image.tolist()
-    radius = limits["gridRadius"]
-    if not isinstance(radius, int) or not 1 <= radius <= 10:
-        raise ValueError("Grid radius must be an integer from 1 through 10.")
-    grid = source_grid(n, radius)
-    transformed = grid @ matrix.T
-    basis = np.eye(n, dtype=np.float64)
-    basis_images = basis @ matrix.T
-    if not np.isfinite(transformed).all() or not np.isfinite(basis_images).all():
-        raise ValueError("The transformed scene contains a nonfinite coordinate.")
-    return json.dumps({"matrix": matrix.tolist(), "m": m, "n": n,
-                       "sourceGrid": grid.tolist(), "targetGrid": transformed.tolist(),
-                       "basis": basis.tolist(), "basisImages": basis_images.tolist(),
-                       "vectors": vectors, "images": images, "cleared": cleared}, allow_nan=False)
+    sources = {}
+    for n in range(1, 4):
+        sources[n] = {"grid": source_grid(n, limits["gridRadius"]), "basis": np.eye(n),
+                      "points": source_points(n, limits["gridRadius"], limits["pointSamples"])}
+
+    def transform(entry, matrix):
+        m, n = matrix.shape
+        grid = sources[n]["grid"] @ matrix.T
+        points = sources[n]["points"] @ matrix.T
+        basis = np.eye(n) @ matrix.T
+        images = {}
+        for vector in vectors:
+            if len(vector["coords"]) == n:
+                image = matrix @ np.asarray(vector["coords"], dtype=np.float64)
+                if not np.isfinite(image).all():
+                    raise ValueError("The transformed vector contains a nonfinite coordinate.")
+                images[vector["id"]] = image.tolist()
+        if not np.isfinite(grid).all() or not np.isfinite(basis).all() or not np.isfinite(points).all():
+            raise ValueError("The transformed scene contains a nonfinite coordinate.")
+        return {**entry, "matrix": matrix.tolist(), "m": m, "n": n,
+                "isIdentity": bool(m == n and np.array_equal(matrix, np.eye(n))),
+                "grid": grid.tolist(), "basis": basis.tolist(), "points": points.tolist(), "images": images}
+
+    results = [transform(entry, parse_matrix(entry["text"], limits["coefficientMagnitude"]))
+               for entry in matrices]
+    identities = {n: transform({"id": "identity", "name": "I", "color": "#2166ac", "visible": True}, np.eye(n))
+                  for n in range(1, 4)}
+    return json.dumps({"matrices": results, "identities": identities, "vectors": vectors, "sources": {
+        n: {key: value.tolist() for key, value in data.items()} for n, data in sources.items()
+    }}, allow_nan=False)
